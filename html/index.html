@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>File Upload & Preview</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            text-align: center;
+            background-color: #f9f9f9;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: white;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 12px;
+        }
+
+        h2 {
+            color: #4CAF50;
+        }
+
+        table {
+            margin: 20px auto;
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px;
+        }
+
+        th {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        button {
+            padding: 8px 16px;
+            margin-top: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        #uploadForm {
+            margin-top: 20px;
+        }
+
+        input[type="file"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        #preview {
+            margin-top: 20px;
+        }
+
+        img {
+            max-width: 100%;
+            height: auto;
+            margin-top: 10px;
+            border: 2px solid #4CAF50;
+            border-radius: 8px;
+        }
+
+        pre {
+            text-align: left;
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            overflow: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>List of Available Files to Download</h2>
+
+        <table id="fileTable">
+            <tr>
+                <th>File Name</th>
+                <th>File Size</th>
+                <th>Action</th>
+            </tr>
+        </table>
+
+        <h2>Upload File & Preview</h2>
+
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" id="fileInput" name="file" required>
+            <button type="submit">Upload</button>
+        </form>
+
+        <div id="preview"></div>
+    </div>
+
+    <script>
+        const uploadForm = document.getElementById("uploadForm");
+        const fileInput = document.getElementById("fileInput");
+        const preview = document.getElementById("preview");
+        const fileTable = document.getElementById("fileTable");
+
+        async function fetchFileList() {
+            try {
+                const response = await fetch("http://localhost:8080/files/listFile");
+                if (!response.ok) throw new Error("Failed to fetch file list");
+
+                const files = await response.json();
+                files.forEach(file => addFileRow(file));
+            } catch (error) {
+                console.error("Error fetching file list:", error);
+            }
+        }
+
+        function addFileRow(file) {
+            const row = document.createElement("tr");
+            row.innerHTML = `
+                <td>${file.name}</td>
+                <td>${(file.size / 1024).toFixed(2)} KB</td>
+                <td><button onclick="downloadFile('${file.name}')">Download</button></td>
+            `;
+            fileTable.appendChild(row);
+        }
+
+        async function downloadFile(fileName) {
+            window.location.href = `http://localhost:8080/files/download?name=${fileName}`;
+        }
+
+        uploadForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const file = fileInput.files[0];
+            if (!file) {
+                alert("Please select a file!");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const response = await fetch("http://localhost:8080/files/upload", {
+                    method: "POST",
+                    body: formData,
+                });
+
+                if (response.ok) {
+                    alert("File uploaded successfully!");
+                    previewFile(file);
+                    addFileRow({ name: file.name, size: file.size });
+                } else {
+                    alert("Upload failed!");
+                }
+            } catch (error) {
+                console.error("Error uploading file:", error);
+                alert("Error uploading file!");
+            }
+        });
+
+        function previewFile(file) {
+            preview.innerHTML = "";
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                if (file.type.startsWith("image/")) {
+                    const img = document.createElement("img");
+                    img.src = e.target.result;
+                    preview.appendChild(img);
+                } else {
+                    const pre = document.createElement("pre");
+                    pre.textContent = e.target.result;
+                    preview.appendChild(pre);
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        window.onload = fetchFileList;
+    </script>
+</body>
+
+</html>

@@ -10,6 +10,8 @@ public class FileModel {
 
     private String FileSource;
 
+    private Double FileSize;
+
     public String getFileName() {
         return FileName;
     }
@@ -24,5 +26,13 @@ public class FileModel {
 
     public void setFileSource(String fileSource) {
         FileSource = fileSource;
+    }
+
+    public Double getFileSize() {
+        return FileSize;
+    }
+
+    public void setFileSize(Double FileSize) {
+        this.FileSize = FileSize;
     }
 }
