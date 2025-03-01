@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.zip.GZIPOutputStream;
 import java.io.*;
 import java.net.*;
-import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
@@ -20,18 +19,17 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
         String host;
         int port;
         String clientFolder;
-        List<String> Files; 
+        List<String> files;
     }
 
     private ClientInfo clientInfo = new ClientInfo();
 
-    // setter for clientInfo
     public void setClientInfo(String clientID, String host, int port, String clientFolder, List<String> files) {
         this.clientInfo.clientID = clientID;
         this.clientInfo.host = host;
         this.clientInfo.port = port;
         this.clientInfo.clientFolder = clientFolder;
-        this.clientInfo.Files = files;
+        this.clientInfo.files = files;
     }
 
     @Override
@@ -39,10 +37,9 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
         try {
             Registry registry = LocateRegistry.getRegistry(d_host, d_port);
             DirectoryService directory = (DirectoryService) registry.lookup("DirectoryService");
-            // register with the directory server
             directory.registerClient(this);
         } catch (Exception e) {
-            System.err.println("Client exception: " + e.toString());
+            System.err.println("Client exception: " + e);
             e.printStackTrace();
         }
     }
@@ -51,39 +48,54 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
     public void startFileServer(int port) throws Exception {
         new Thread(() -> {
             try (ServerSocket serverSocket = new ServerSocket(port)) {
-                System.out.println("Client " + this.clientInfo.clientID + " is running on port " + port);
-
+                System.out.println("Client " + this.clientInfo.clientID + " serving on port " + port);
                 while (true) {
-                    try (Socket clientSocket = serverSocket.accept();
-                        DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
-                        DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream())) 
-                        {
-    
-                        String fileName = dis.readUTF();
-                        long offset = dis.readLong();
-                        long fragmentSize = dis.readLong();
-    
-                        File file = new File(fileName);
-                        if (file.exists()) {
-                            try (RandomAccessFile raf = new RandomAccessFile(file, "r");
-                                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                                GZIPOutputStream gzip = new GZIPOutputStream(baos)) {
-                                raf.seek(offset);
-                                byte[] buffer = new byte[(int) fragmentSize];
-                                int bytesRead = raf.read(buffer);
-                                gzip.write(buffer, 0, bytesRead);
-                                gzip.finish();
-                                byte[] compressed = baos.toByteArray();
-                                dos.writeInt(compressed.length);
-                                dos.write(compressed);
-                                dos.flush();
+                    Socket clientSocket = serverSocket.accept();
+                    new Thread(() -> {
+                        try (DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
+                             DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream())) {
+                            
+                            String command = dis.readUTF();
+                            if ("GET_SIZE".equals(command)) {
+                                String fileName = dis.readUTF();
+                                File file = new File(this.clientInfo.clientFolder, fileName);
+                                long size = (file.exists() && file.isFile()) ? file.length() : -1L;
+                                dos.writeLong(size);
+                            } else if ("GET_FRAGMENT".equals(command)) {
+                                String fileName = dis.readUTF();
+                                long offset = dis.readLong();
+                                long fragmentSize = dis.readLong();
+
+                                File file = new File(this.clientInfo.clientFolder, fileName);
+                                if (file.exists()) {
+                                    try (RandomAccessFile raf = new RandomAccessFile(file, "r");
+                                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                         GZIPOutputStream gzip = new GZIPOutputStream(baos)) {
+                                        
+                                        raf.seek(offset);
+                                        byte[] buffer = new byte[(int) fragmentSize];
+                                        int bytesRead = raf.read(buffer);
+                                        if (bytesRead < 0) {
+                                            dos.writeInt(-1);
+                                        } else {
+                                            gzip.write(buffer, 0, bytesRead);
+                                            gzip.finish();
+                                            byte[] compressed = baos.toByteArray();
+                                            dos.writeInt(compressed.length);
+                                            dos.write(compressed);
+                                            dos.flush();
+                                        }
+                                    }
+                                } else {
+                                    dos.writeInt(-1);
+                                }
+                            } else {
+                                dos.writeInt(-1);
                             }
-                        } else {
-                            dos.writeInt(-1);
+                        } catch (IOException e) {
+                            e.printStackTrace();
                         }
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
+                    }).start();
                 }
             } catch (IOException e) {
                 e.printStackTrace();
@@ -92,14 +104,14 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
     }
 
     @Override
-    public void sendNotice(String d_host, int d_port) throws RemoteException {
+    public void sendNotice(String d_host, int d_port) {
         new Thread(() -> {
             while (true) {
                 try {
                     Registry registry = LocateRegistry.getRegistry(d_host, d_port);
                     DirectoryService directory = (DirectoryService) registry.lookup("DirectoryService");
                     directory.heartbeat(this.clientInfo.clientID);
-                    Thread.sleep(10000); // Every 10 seconds
+                    Thread.sleep(10000); // every 10 seconds
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -107,29 +119,28 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
         }).start();
     }
 
-    // getter for clientInfo
+    @Override
     public String getClientID() {
         return this.clientInfo.clientID;
     }
 
-    // getter for host
+    @Override
     public String getHost() {
         return this.clientInfo.host;
     }
 
-    // getter for port
+    @Override
     public int getPort() {
         return this.clientInfo.port;
     }
 
-    // getter for clientFolder
-    public String getClientFolder(){
+    @Override
+    public String getClientFolder() {
         return this.clientInfo.clientFolder;
     }
 
-    // getter for files
+    @Override
     public List<String> getFiles() {
-        return this.clientInfo.Files;
+        return this.clientInfo.files;
     }
 }
-

@@ -1,11 +1,10 @@
 package com.example.songsong;
 
 import java.io.File;
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Scanner;
 import java.util.stream.Collectors;
-import java.net.*;
 
 public class Daemon {
     private static final String DIR_HOST = "localhost";
@@ -20,7 +19,7 @@ public class Daemon {
             try {
                 dirPort = Integer.parseInt(args[0]);
             } catch (NumberFormatException e) {
-                System.err.println("Invalid port specified: " + args[0] + ". Using default port " + DIR_PORT_DEFAULT);
+                System.err.println("Invalid directory port: " + args[0] + ". Using default port " + DIR_PORT_DEFAULT);
             }
         }
 
@@ -28,9 +27,16 @@ public class Daemon {
         if (args.length > 1) {
             folder = args[1];
             File dir = new File(folder);
-            if (!dir.exists() && dir.mkdir()) {
-                System.out.println("Created new folder: " + folder);
+            if (!dir.exists() && !dir.mkdir()) {
+                System.err.println("Cannot create folder: " + folder);
+                return;
             }
+        }
+
+        // Each client gets its own folder. No download request at startup.
+        String fileToDownload = null;
+        if (args.length > 2) {
+            fileToDownload = args[2];
         }
 
         int daemonPort = findAvailablePort(DAEMON_PORT_BASE);
@@ -46,62 +52,58 @@ public class Daemon {
             System.err.println("Invalid folder: " + folder);
             return;
         }
-
         List<String> files = Arrays.stream(dir.listFiles())
-                .filter(File::isFile)
-                .map(File::getName)
-                .collect(Collectors.toList());
-
+                                   .filter(File::isFile)
+                                   .map(File::getName)
+                                   .collect(Collectors.toList());
         System.out.println(files.size() + " files found in " + folder);
         System.out.println("Scanning directory: " + dir.getAbsolutePath());
 
-        if (files.isEmpty()) {
-            System.err.println("No files in " + folder);
-        }
-
-        // Set system properties for DownloadImpl to use
+        // Set system properties so DownloadImpl can locate the Directory and to mark this client's ID.
         System.setProperty("directory.host", DIR_HOST);
         System.setProperty("directory.port", String.valueOf(dirPort));
-        System.setProperty("local.daemon.port", String.valueOf(daemonPort));
+        System.setProperty("local.client.id", clientId);
 
         try {
             ClientImpl client = new ClientImpl();
             client.setClientInfo(clientId, DIR_HOST, daemonPort, folder, files);
-
             client.registerDirectory(DIR_HOST, dirPort);
             client.startFileServer(daemonPort);
             client.sendNotice(DIR_HOST, dirPort);
-            System.out.println("Daemon " + clientId + " started on port " + daemonPort + 
-                              " serving files from " + folder + " with Directory on port " + dirPort);
+
+            System.out.println("Daemon " + clientId + " started on port " + daemonPort +
+                               " serving files from folder: " + folder +
+                               " with Directory on port " + dirPort);
+
+            // Now wait for user commands
+            Scanner scanner = new Scanner(System.in);
+            while (true) {
+                System.out.println("Enter a filename to download or type 'exit' to quit:");
+                String input = scanner.nextLine().trim();
+                if ("exit".equalsIgnoreCase(input)) {
+                    System.out.println("Exiting client.");
+                    break;
+                }
+                if (!input.isEmpty()) {
+                    IDownload downloadService = new DownloadImpl();
+                    downloadService.downloadFile(input);
+                }
+            }
+            scanner.close();
         } catch (Exception e) {
             System.err.println("Failed to start Daemon: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
-    private static int findAvailablePort(int basePort){
+    public static int findAvailablePort(int basePort) {
         for (int port = basePort; port <= DAEMON_PORT_MAX; port++) {
-            try (ServerSocket serverSocket = new ServerSocket(port)) {
-                // If no exception, the port is available
+            try (java.net.ServerSocket serverSocket = new java.net.ServerSocket(port)) {
                 return port;
-            } catch (IOException e) {
-                // Port is in use—try the next one
+            } catch (Exception e) {
                 continue;
             }
         }
-        return -1; // No available port found
+        return -1;
     }
-
-    public static int getLocalDaemonPort() {
-        String portStr = System.getProperty("local.daemon.port");
-        if (portStr != null) {
-            try {
-                return Integer.parseInt(portStr);
-            } catch (NumberFormatException e) {
-                System.err.println("Invalid local daemon port in system property: " + portStr);
-            }
-        }
-        return DAEMON_PORT_BASE; // Fallback to base port if no property set (unlikely after startup)
-    }
-
 }
