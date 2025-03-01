@@ -4,17 +4,41 @@ import java.util.List;
 import java.util.zip.GZIPOutputStream;
 import java.io.*;
 import java.net.*;
+import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.server.UnicastRemoteObject;
 
-public class ClientImpl implements IClient {
+public class ClientImpl extends UnicastRemoteObject implements IClient {
+
+    public ClientImpl() throws java.rmi.RemoteException {
+        super();
+    }
+
+    protected class ClientInfo {
+        String clientID;
+        String host;
+        int port;
+        String clientFolder;
+        List<String> Files; 
+    }
+
+    private ClientInfo clientInfo = new ClientInfo();
+
+    // setter for clientInfo
+    public void setClientInfo(String clientID, String host, int port, String clientFolder, List<String> files) {
+        this.clientInfo.clientID = clientID;
+        this.clientInfo.host = host;
+        this.clientInfo.port = port;
+        this.clientInfo.clientFolder = clientFolder;
+        this.clientInfo.Files = files;
+    }
+
     @Override
     public void registerDirectory(String d_host, int d_port) throws Exception {
         try {
-            // Connect to the RMI registry on the Directory host
             Registry registry = LocateRegistry.getRegistry(d_host, d_port);
-            // Lookup the Directory
-            DirectoryImpl directory = (DirectoryImpl) registry.lookup("DirectoryService");
+            DirectoryService directory = (DirectoryService) registry.lookup("DirectoryService");
             // register with the directory server
             directory.registerClient(this);
         } catch (Exception e) {
@@ -68,14 +92,12 @@ public class ClientImpl implements IClient {
     }
 
     @Override
-    public void sendNotice(String d_host, int d_port) {
+    public void sendNotice(String d_host, int d_port) throws RemoteException {
         new Thread(() -> {
             while (true) {
                 try {
                     Registry registry = LocateRegistry.getRegistry(d_host, d_port);
-
-                    // Implement the DirectoryImpl class
-                    DirectoryImpl directory = (DirectoryImpl) registry.lookup("DirectoryService");
+                    DirectoryService directory = (DirectoryService) registry.lookup("DirectoryService");
                     directory.heartbeat(this.clientInfo.clientID);
                     Thread.sleep(10000); // Every 10 seconds
                 } catch (Exception e) {
@@ -83,25 +105,6 @@ public class ClientImpl implements IClient {
                 }
             }
         }).start();
-    }
-
-    private class ClientInfo {
-        String clientID;
-        String host;
-        int port;
-        String clientFolder;
-        List<String> Files; 
-    }
-
-    private ClientInfo clientInfo;
-
-    // setter for clientInfo
-    public void setClientInfo(String clientID, String host, int port, String clientFolder, List<String> files) {
-        this.clientInfo.clientID = clientID;
-        this.clientInfo.host = host;
-        this.clientInfo.port = port;
-        this.clientInfo.clientFolder = clientFolder;
-        this.clientInfo.Files = files;
     }
 
     // getter for clientInfo

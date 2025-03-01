@@ -14,10 +14,11 @@ public class RmiServer {
         try {
             DirectoryService directory = new DirectoryImpl();
             LocateRegistry.createRegistry(port);
+            directory.startHeartbeatMonitor();
 
             // Bind the directory to the RMI registry
             Naming.rebind("rmi://localhost/DirectoryService", directory);
-            System.out.println("Directory Server is running...");
+            System.out.println("Directory Server is running... on port " + port);
         } catch (Exception e) {
             e.printStackTrace();
         }

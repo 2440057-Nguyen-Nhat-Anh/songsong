@@ -1,11 +1,8 @@
-D:\Master\songsong\src\main\java\com\example\songsong\client\ClientConfig.java
-D:\Master\songsong\src\main\java\com\example\songsong\client\ClientReceiver.java
-D:\Master\songsong\src\main\java\com\example\songsong\client\ClientSender.java
-D:\Master\songsong\src\main\java\com\example\songsong\config\DaemonInterface.java
-D:\Master\songsong\src\main\java\com\example\songsong\config\DirectoryInterface.java
-D:\Master\songsong\src\main\java\com\example\songsong\Daemon.java
-D:\Master\songsong\src\main\java\com\example\songsong\Directory.java
-D:\Master\songsong\src\main\java\com\example\songsong\Download.java
-D:\Master\songsong\src\main\java\com\example\songsong\impl\DaemonImpl.java
-D:\Master\songsong\src\main\java\com\example\songsong\impl\DirectoryImpl.java
-D:\Master\songsong\src\main\java\com\example\songsong\RmiServer.java
+/Users/thienannguyen/Documents/University/INP Toulouse/Projects/songsong/src/main/java/com/example/songsong/ClientImpl.java
+/Users/thienannguyen/Documents/University/INP Toulouse/Projects/songsong/src/main/java/com/example/songsong/Daemon.java
+/Users/thienannguyen/Documents/University/INP Toulouse/Projects/songsong/src/main/java/com/example/songsong/DirectoryImpl.java
+/Users/thienannguyen/Documents/University/INP Toulouse/Projects/songsong/src/main/java/com/example/songsong/DirectoryService.java
+/Users/thienannguyen/Documents/University/INP Toulouse/Projects/songsong/src/main/java/com/example/songsong/DownloadImpl.java
+/Users/thienannguyen/Documents/University/INP Toulouse/Projects/songsong/src/main/java/com/example/songsong/IClient.java
+/Users/thienannguyen/Documents/University/INP Toulouse/Projects/songsong/src/main/java/com/example/songsong/IDownload.java
+/Users/thienannguyen/Documents/University/INP Toulouse/Projects/songsong/src/main/java/com/example/songsong/RmiServer.java

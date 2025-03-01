@@ -1,10 +1,16 @@
 package com.example.songsong;
 
-public interface IClient {
-    // registers with the directory server
-    void registerDirectory(String d_host, int d_port) throws Exception;
-    // startFileServer() starts a file server on the client -> file fragments
-    void startFileServer(int port) throws Exception;
-    // Notify that it's active
-    void sendNotice(String d_host, int d_port);
+import java.rmi.Remote;
+import java.rmi.RemoteException;
+import java.util.List;
+
+public interface IClient extends Remote {
+    void registerDirectory(String d_host, int d_port) throws RemoteException, Exception;
+    void startFileServer(int port) throws RemoteException, Exception;
+    void sendNotice(String d_host, int d_port) throws RemoteException;
+    String getClientID() throws RemoteException;
+    List<String> getFiles() throws RemoteException;
+    String getHost() throws RemoteException;
+    int getPort() throws RemoteException;
+    String getClientFolder() throws RemoteException;
 }
