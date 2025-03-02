@@ -63,7 +63,6 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
         }).start();
     }
     
-    // Helper method to handle individual client requests
     private void handleClientRequest(Socket clientSocket) {
         try (DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
              DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream())) {

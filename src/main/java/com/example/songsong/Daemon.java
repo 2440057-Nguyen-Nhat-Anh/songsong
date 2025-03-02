@@ -34,7 +34,8 @@ public class Daemon {
             }
         }
 
-        // Optionally, a filename can be passed as third argument for immediate download.
+        // Optionally, a filename can be passed as third argument for immediate
+        // download.
         String fileToDownload = null;
         if (args.length > 2) {
             fileToDownload = args[2];
@@ -54,13 +55,12 @@ public class Daemon {
             return;
         }
         List<String> files = Arrays.stream(dir.listFiles())
-                                   .filter(File::isFile)
-                                   .map(File::getName)
-                                   .collect(Collectors.toList());
+                .filter(File::isFile)
+                .map(File::getName)
+                .collect(Collectors.toList());
         System.out.println(files.size() + " files found in " + folder);
         System.out.println("Scanning directory: " + dir.getAbsolutePath());
 
-        // Set system properties so DownloadImpl can locate the Directory and mark this client's ID.
         System.setProperty("directory.host", DIR_HOST);
         System.setProperty("directory.port", String.valueOf(dirPort));
         System.setProperty("local.client.id", clientId);
@@ -73,26 +73,24 @@ public class Daemon {
             client.sendNotice(DIR_HOST, dirPort);
 
             System.out.println("Daemon " + clientId + " started on port " + daemonPort +
-                               " serving files from folder: " + folder +
-                               " with Directory on port " + dirPort);
+                    " serving files from folder: " + folder +
+                    " with Directory on port " + dirPort);
 
-            // If a file is specified at startup, download it immediately.
             if (fileToDownload != null) {
                 System.out.println("Attempting immediate download for file: " + fileToDownload);
                 IDownload downloadService = new DownloadImpl();
                 try {
                     downloadService.downloadFile(fileToDownload);
-                    // Only update file list after successful download
                     updateFileList(client, clientId, DIR_HOST, daemonPort, folder, dirPort);
                 } catch (Exception e) {
                     System.err.println("Error during immediate download: " + e.getMessage());
                 }
             }
 
-            // Interactive prompt for choosing download method:
             Scanner scanner = new Scanner(System.in);
             while (true) {
-                System.out.println("\nEnter download option and filename (format: <option> <filename> or 'exit' to quit):");
+                System.out.println(
+                        "\nEnter download option and filename (format: <option> <filename> or 'exit' to quit):");
                 System.out.println("  1: Parallel download");
                 System.out.println("  2: Sequential download");
                 System.out.println("  3: Sequential-all download");
@@ -115,10 +113,10 @@ public class Daemon {
                 }
                 String fileName = parts[1].trim();
                 IDownload downloadService = new DownloadImpl();
-                
+
                 boolean downloadSuccessful = false;
                 try {
-                    switch(option) {
+                    switch (option) {
                         case 1:
                             downloadService.downloadFile(fileName);
                             downloadSuccessful = true;
@@ -138,8 +136,7 @@ public class Daemon {
                     System.err.println("Download failed: " + e.getMessage());
                     e.printStackTrace();
                 }
-                
-                // Only update file list if download was successful
+
                 if (downloadSuccessful) {
                     updateFileList(client, clientId, DIR_HOST, daemonPort, folder, dirPort);
                 }
@@ -150,39 +147,33 @@ public class Daemon {
             e.printStackTrace();
         }
     }
-    
-    // Extract the file list update logic to a separate method
-    private static void updateFileList(ClientImpl client, String clientId, String dirHost, 
-                                      int daemonPort, String folder, int dirPort) {
+
+    private static void updateFileList(ClientImpl client, String clientId, String dirHost,
+            int daemonPort, String folder, int dirPort) {
         try {
-            // Give the file system a moment to finalize writing
             Thread.sleep(100);
-            
-            // Scan for updated files
+
             List<String> updatedFiles = scanFiles(folder);
-            
-            // Update client information
+
             client.setClientInfo(clientId, dirHost, daemonPort, folder, updatedFiles);
-            
-            // Re-register to update the Directory with the new file list
+
             client.registerDirectory(dirHost, dirPort);
-            
+
             System.out.println("Local file list updated after download. Files: " + updatedFiles);
         } catch (Exception e) {
             System.err.println("Failed to update file list: " + e.getMessage());
         }
     }
 
-    // Help see all files after download
     public static List<String> scanFiles(String folder) {
         File dir = new File(folder);
         if (!dir.exists() || !dir.isDirectory()) {
             return new ArrayList<>();
         }
         return Arrays.stream(dir.listFiles())
-                    .filter(File::isFile)
-                    .map(File::getName)
-                    .collect(Collectors.toList());
+                .filter(File::isFile)
+                .map(File::getName)
+                .collect(Collectors.toList());
     }
 
     public static int findAvailablePort(int basePort) {

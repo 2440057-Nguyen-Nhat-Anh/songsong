@@ -23,7 +23,6 @@ public class DownloadImpl implements IDownload {
             Registry registry = LocateRegistry.getRegistry(d_host, d_port);
             DirectoryService directory = (DirectoryService) registry.lookup("DirectoryService");
 
-            // Filter out local or unreachable clients
             List<IClient> clients = directory.getAvailableClients(fileName);
             String localClientId = System.getProperty("local.client.id", "");
             List<IClient> remoteClients = new ArrayList<>();
@@ -54,25 +53,28 @@ public class DownloadImpl implements IDownload {
                 final int fragmentIndex = i;
                 long offset = i * FRAGMENT_SIZE;
                 long fragmentSize = Math.min(FRAGMENT_SIZE, fileSize - offset);
-                System.out.println("Downloading fragment " + fragmentIndex + " (offset: " + offset + ", size: " + fragmentSize + ")");
+                System.out.println("Downloading fragment " + fragmentIndex + " (offset: " + offset + ", size: "
+                        + fragmentSize + ")");
                 Future<byte[]> future = executor.submit(() -> {
                     int attempts = 0;
                     IOException lastException = null;
-                    // Try each client in turn for this fragment
+
                     while (attempts < remoteClients.size()) {
                         IClient client = remoteClients.get((fragmentIndex + attempts) % remoteClients.size());
                         String clientId;
                         try {
                             clientId = client.getClientID();
                         } catch (RemoteException re) {
-                            System.out.println("RemoteException retrieving client ID: " + re.getMessage() + "; trying next client.");
+                            System.out.println("RemoteException retrieving client ID: " + re.getMessage()
+                                    + "; trying next client.");
                             attempts++;
                             continue;
                         }
                         try {
                             directory.reportDownloadStart(clientId);
                         } catch (RemoteException re) {
-                            System.out.println("RemoteException reporting download start for client " + clientId + ": " + re.getMessage());
+                            System.out.println("RemoteException reporting download start for client " + clientId + ": "
+                                    + re.getMessage());
                             attempts++;
                             continue;
                         }
@@ -80,17 +82,20 @@ public class DownloadImpl implements IDownload {
                             return attemptFragmentDownload(client, fileName, offset, fragmentSize);
                         } catch (IOException e) {
                             lastException = e;
-                            System.out.println("Failed to download fragment " + fragmentIndex + " from client " + clientId + "; trying next client.");
+                            System.out.println("Failed to download fragment " + fragmentIndex + " from client "
+                                    + clientId + "; trying next client.");
                         } finally {
                             try {
                                 directory.reportDownloadEnd(clientId);
                             } catch (RemoteException re) {
-                                System.out.println("RemoteException reporting download end for client " + clientId + ": " + re.getMessage());
+                                System.out.println("RemoteException reporting download end for client " + clientId
+                                        + ": " + re.getMessage());
                             }
                         }
                         attempts++;
                     }
-                    throw new IOException("Failed to download fragment " + fragmentIndex + " from all clients.", lastException);
+                    throw new IOException("Failed to download fragment " + fragmentIndex + " from all clients.",
+                            lastException);
                 });
                 futures.add(future);
             }
@@ -103,7 +108,8 @@ public class DownloadImpl implements IDownload {
             }
             executor.shutdown();
             long end = System.currentTimeMillis();
-            System.out.println("Parallel download time with " + remoteClients.size() + " clients: " + (end - start) + " ms");
+            System.out.println(
+                    "Parallel download time with " + remoteClients.size() + " clients: " + (end - start) + " ms");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -207,17 +213,18 @@ public class DownloadImpl implements IDownload {
                 }
             }
             long end = System.currentTimeMillis();
-            System.out.println("Sequential-all download time with " + remoteClients.size() + " clients: " + (end - start) + " ms");
+            System.out.println(
+                    "Sequential-all download time with " + remoteClients.size() + " clients: " + (end - start) + " ms");
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    // Helper method to download a fragment from a single client.
-    private byte[] attemptFragmentDownload(IClient client, String fileName, long offset, long fragmentSize) throws IOException {
+    private byte[] attemptFragmentDownload(IClient client, String fileName, long offset, long fragmentSize)
+            throws IOException {
         try (Socket socket = new Socket(client.getHost(), client.getPort());
-             DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-             DataInputStream dis = new DataInputStream(socket.getInputStream())) {
+                DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+                DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
             dos.writeUTF("GET_FRAGMENT");
             dos.writeUTF(fileName);
@@ -233,9 +240,9 @@ public class DownloadImpl implements IDownload {
             dis.readFully(compressed);
 
             try (ByteArrayInputStream bais = new ByteArrayInputStream(compressed);
-                 GZIPInputStream gzip = new GZIPInputStream(bais)) {
+                    GZIPInputStream gzip = new GZIPInputStream(bais)) {
                 System.out.println("Downloaded fragment (" + offset + " to " + (offset + fragmentSize) +
-                                   ") from client " + client.getClientID());
+                        ") from client " + client.getClientID());
                 return gzip.readAllBytes();
             }
         }

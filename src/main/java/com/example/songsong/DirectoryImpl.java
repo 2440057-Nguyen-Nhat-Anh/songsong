@@ -10,14 +10,10 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class DirectoryImpl extends UnicastRemoteObject implements DirectoryService {
-    // Maps file names to lists of clients that have the file
     private Map<String, List<IClient>> fileToClients = new ConcurrentHashMap<>();
-    // Tracks the last heartbeat timestamp for each client
     private Map<String, Long> lastHeartbeat = new ConcurrentHashMap<>();
-    // Tracks the number of active downloads per client for load balancing
     private Map<String, Integer> clientLoad = new ConcurrentHashMap<>();
-    // Timeout (in milliseconds) after which a client is considered disconnected
-    private static final long TIMEOUT = 60000; // 1 minute
+    private static final long TIMEOUT = 60000;
 
     public DirectoryImpl() throws RemoteException {
         super();
