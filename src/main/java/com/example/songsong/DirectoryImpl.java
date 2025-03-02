@@ -27,12 +27,23 @@ public class DirectoryImpl extends UnicastRemoteObject implements DirectoryServi
     public synchronized void registerClient(IClient client) throws RemoteException {
         String clientId = client.getClientID();
         lastHeartbeat.put(clientId, System.currentTimeMillis());
-        for (String file : client.getFiles()) {
-            fileToClients.computeIfAbsent(file, k -> new ArrayList<>()).add(client);
+        
+        for (List<IClient> clientList : fileToClients.values()) {
+             clientList.removeIf(existingClient -> {
+                 try {
+                     return existingClient.getClientID().equals(clientId);
+                 } catch (RemoteException e) {
+                     return false;
+                 }
+             });
         }
-        System.out.println("Registered client: " + clientId + " with files: " + client.getFiles());
+        for (String file : client.getFiles()) {
+             fileToClients.computeIfAbsent(file, k -> new ArrayList<>()).add(client);
+        }
+        
+        System.out.println("Updated registration for client: " + clientId + " with files: " + client.getFiles());
     }
-
+    
     @Override
     public List<IClient> getAvailableClients(String fileName) throws RemoteException {
         List<IClient> clients = fileToClients.getOrDefault(fileName, Collections.emptyList());
@@ -42,9 +53,16 @@ public class DirectoryImpl extends UnicastRemoteObject implements DirectoryServi
                 Long last = lastHeartbeat.get(client.getClientID());
                 boolean timeout = (last == null) || ((System.currentTimeMillis() - last) > TIMEOUT);
                 boolean overload = clientLoad.getOrDefault(client.getClientID(), 0) > 5;
+                if (timeout || overload) {
+                    System.out.println("Removing client " + client.getClientID() + " due to " + (timeout ? "timeout" : "overload"));
+                }
                 return timeout || overload;
             } catch (RemoteException e) {
-                e.printStackTrace();
+                try {
+                    System.out.println("Client unreachable: " + client.getClientID() + ". Removing from list.");
+                } catch (RemoteException ex) {
+                    System.out.println("Failed to get client ID: " + ex.getMessage());
+                }
                 return true;
             }
         });

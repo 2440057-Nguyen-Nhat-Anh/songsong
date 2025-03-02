@@ -4,11 +4,11 @@ import java.io.*;
 import java.net.*;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.RemoteException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.zip.GZIPInputStream;
-import java.rmi.RemoteException;
 
 public class DownloadImpl implements IDownload {
     private static final long FRAGMENT_SIZE = 5 * 1024 * 1024;
@@ -23,14 +23,19 @@ public class DownloadImpl implements IDownload {
             Registry registry = LocateRegistry.getRegistry(d_host, d_port);
             DirectoryService directory = (DirectoryService) registry.lookup("DirectoryService");
 
+            // Filter out local or unreachable clients
             List<IClient> clients = directory.getAvailableClients(fileName);
             String localClientId = System.getProperty("local.client.id", "");
             List<IClient> remoteClients = new ArrayList<>();
             for (IClient client : clients) {
-                if (!client.getClientID().equals(localClientId)) {
-                    remoteClients.add(client);
-                } else {
-                    System.out.println("Excluding local client " + localClientId + " from download.");
+                try {
+                    if (!client.getClientID().equals(localClientId)) {
+                        remoteClients.add(client);
+                    } else {
+                        System.out.println("Excluding local client " + localClientId + " from download.");
+                    }
+                } catch (RemoteException e) {
+                    System.out.println("Skipping client due to connection error: " + e.getMessage());
                 }
             }
 
@@ -49,24 +54,50 @@ public class DownloadImpl implements IDownload {
                 final int fragmentIndex = i;
                 long offset = i * FRAGMENT_SIZE;
                 long fragmentSize = Math.min(FRAGMENT_SIZE, fileSize - offset);
-                IClient assignedClient = remoteClients.get(i % remoteClients.size());
-                directory.reportDownloadStart(assignedClient.getClientID());
-                System.out.println("Downloading fragment " + fragmentIndex + " (offset: " + offset + ", size: " + fragmentSize 
-                                   + ") from client " + assignedClient.getClientID());
-
+                System.out.println("Downloading fragment " + fragmentIndex + " (offset: " + offset + ", size: " + fragmentSize + ")");
                 Future<byte[]> future = executor.submit(() -> {
-                    try {
-                        return downloadFragment(remoteClients, fragmentIndex % remoteClients.size(), fileName, offset, fragmentSize);
-                    } finally {
-                        directory.reportDownloadEnd(assignedClient.getClientID());
+                    int attempts = 0;
+                    IOException lastException = null;
+                    // Try each client in turn for this fragment
+                    while (attempts < remoteClients.size()) {
+                        IClient client = remoteClients.get((fragmentIndex + attempts) % remoteClients.size());
+                        String clientId;
+                        try {
+                            clientId = client.getClientID();
+                        } catch (RemoteException re) {
+                            System.out.println("RemoteException retrieving client ID: " + re.getMessage() + "; trying next client.");
+                            attempts++;
+                            continue;
+                        }
+                        try {
+                            directory.reportDownloadStart(clientId);
+                        } catch (RemoteException re) {
+                            System.out.println("RemoteException reporting download start for client " + clientId + ": " + re.getMessage());
+                            attempts++;
+                            continue;
+                        }
+                        try {
+                            return attemptFragmentDownload(client, fileName, offset, fragmentSize);
+                        } catch (IOException e) {
+                            lastException = e;
+                            System.out.println("Failed to download fragment " + fragmentIndex + " from client " + clientId + "; trying next client.");
+                        } finally {
+                            try {
+                                directory.reportDownloadEnd(clientId);
+                            } catch (RemoteException re) {
+                                System.out.println("RemoteException reporting download end for client " + clientId + ": " + re.getMessage());
+                            }
+                        }
+                        attempts++;
                     }
+                    throw new IOException("Failed to download fragment " + fragmentIndex + " from all clients.", lastException);
                 });
                 futures.add(future);
             }
 
             try (FileOutputStream fos = new FileOutputStream(fileName)) {
-                for (int i = 0; i < futures.size(); i++) {
-                    byte[] fragment = futures.get(i).get();
+                for (Future<byte[]> future : futures) {
+                    byte[] fragment = future.get();
                     fos.write(fragment);
                 }
             }
@@ -90,8 +121,12 @@ public class DownloadImpl implements IDownload {
             String localClientId = System.getProperty("local.client.id", "");
             List<IClient> remoteClients = new ArrayList<>();
             for (IClient client : clients) {
-                if (!client.getClientID().equals(localClientId)) {
-                    remoteClients.add(client);
+                try {
+                    if (!client.getClientID().equals(localClientId)) {
+                        remoteClients.add(client);
+                    }
+                } catch (RemoteException e) {
+                    System.out.println("Skipping client due to connection error: " + e.getMessage());
                 }
             }
 
@@ -103,14 +138,15 @@ public class DownloadImpl implements IDownload {
             IClient client = remoteClients.get(0);
             long fileSize = directory.getFileSize(fileName);
             long start = System.currentTimeMillis();
-            directory.reportDownloadStart(client.getClientID());
+            String clientId = client.getClientID();
+            directory.reportDownloadStart(clientId);
             try {
-                byte[] data = downloadFragment(remoteClients, 0, fileName, 0, fileSize);
-                try (FileOutputStream fos = new FileOutputStream("sequential_" + fileName)) {
+                byte[] data = attemptFragmentDownload(client, fileName, 0, fileSize);
+                try (FileOutputStream fos = new FileOutputStream(fileName)) {
                     fos.write(data);
                 }
             } finally {
-                directory.reportDownloadEnd(client.getClientID());
+                directory.reportDownloadEnd(clientId);
             }
             long end = System.currentTimeMillis();
             System.out.println("Sequential download time: " + (end - start) + " ms");
@@ -131,8 +167,12 @@ public class DownloadImpl implements IDownload {
             String localClientId = System.getProperty("local.client.id", "");
             List<IClient> remoteClients = new ArrayList<>();
             for (IClient c : clients) {
-                if (!c.getClientID().equals(localClientId)) {
-                    remoteClients.add(c);
+                try {
+                    if (!c.getClientID().equals(localClientId)) {
+                        remoteClients.add(c);
+                    }
+                } catch (RemoteException e) {
+                    System.out.println("Skipping client due to connection error: " + e.getMessage());
                 }
             }
 
@@ -145,21 +185,24 @@ public class DownloadImpl implements IDownload {
             long numFragments = (long) Math.ceil((double) fileSize / FRAGMENT_SIZE);
             long start = System.currentTimeMillis();
 
-            try (FileOutputStream fos = new FileOutputStream("sequential_all_" + fileName)) {
+            try (FileOutputStream fos = new FileOutputStream(fileName)) {
                 for (int i = 0; i < numFragments; i++) {
                     long offset = i * FRAGMENT_SIZE;
                     long fragmentSize = Math.min(FRAGMENT_SIZE, fileSize - offset);
                     IClient client = remoteClients.get(i % remoteClients.size());
-                    directory.reportDownloadStart(client.getClientID());
+                    String clientId = client.getClientID();
+                    directory.reportDownloadStart(clientId);
                     try {
-                        byte[] data = downloadFragment(remoteClients, i % remoteClients.size(), fileName, offset, fragmentSize);
+                        byte[] data = attemptFragmentDownload(client, fileName, offset, fragmentSize);
                         if (data.length == 0) {
                             System.err.println("Fragment " + i + " failed from all clients.");
                         } else {
                             fos.write(data);
                         }
+                    } catch (IOException e) {
+                        System.err.println("Fragment " + i + " failed: " + e.getMessage());
                     } finally {
-                        directory.reportDownloadEnd(client.getClientID());
+                        directory.reportDownloadEnd(clientId);
                     }
                 }
             }
@@ -170,41 +213,31 @@ public class DownloadImpl implements IDownload {
         }
     }
 
-    private byte[] downloadFragment(List<IClient> clients, int clientIndex, String fileName, long offset, long fragmentSize) {
-        int totalClients = clients.size();
-        for (int i = 0; i < totalClients; i++) {
-            IClient client = clients.get((clientIndex + i) % totalClients);
-            try (Socket socket = new Socket(client.getHost(), client.getPort());
-                 DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-                 DataInputStream dis = new DataInputStream(socket.getInputStream())) {
+    // Helper method to download a fragment from a single client.
+    private byte[] attemptFragmentDownload(IClient client, String fileName, long offset, long fragmentSize) throws IOException {
+        try (Socket socket = new Socket(client.getHost(), client.getPort());
+             DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+             DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
-                dos.writeUTF("GET_FRAGMENT");
-                dos.writeUTF(fileName);
-                dos.writeLong(offset);
-                dos.writeLong(fragmentSize);
-                dos.flush();
+            dos.writeUTF("GET_FRAGMENT");
+            dos.writeUTF(fileName);
+            dos.writeLong(offset);
+            dos.writeLong(fragmentSize);
+            dos.flush();
 
-                int compressedLength = dis.readInt();
-                if (compressedLength == -1) {
-                    throw new IOException("Server indicates fragment not available.");
-                }
-                byte[] compressed = new byte[compressedLength];
-                dis.readFully(compressed);
+            int compressedLength = dis.readInt();
+            if (compressedLength == -1) {
+                throw new IOException("Fragment not available from client " + client.getClientID());
+            }
+            byte[] compressed = new byte[compressedLength];
+            dis.readFully(compressed);
 
-                try (ByteArrayInputStream bais = new ByteArrayInputStream(compressed);
-                     GZIPInputStream gzip = new GZIPInputStream(bais)) {
-                    System.out.println("Downloaded fragment (" + offset + " to " + (offset + fragmentSize) +
-                                       ") from client " + client.getClientID());
-                    return gzip.readAllBytes();
-                }
-            } catch (IOException e) {
-                try {
-                    System.out.println("Failed to download fragment from " + client.getClientID() + "; trying next client.");
-                } catch (RemoteException re) {
-                    System.out.println("Failed to get client ID; trying next client.");
-                }
+            try (ByteArrayInputStream bais = new ByteArrayInputStream(compressed);
+                 GZIPInputStream gzip = new GZIPInputStream(bais)) {
+                System.out.println("Downloaded fragment (" + offset + " to " + (offset + fragmentSize) +
+                                   ") from client " + client.getClientID());
+                return gzip.readAllBytes();
             }
         }
-        return new byte[0];
     }
 }

@@ -50,58 +50,71 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
             try (ServerSocket serverSocket = new ServerSocket(port)) {
                 System.out.println("Client " + this.clientInfo.clientID + " is running on port " + port);
                 while (true) {
-                    Socket clientSocket = serverSocket.accept();
-                    new Thread(() -> {
-                        try (DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
-                             DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream())) {
-                            
-                            String command = dis.readUTF();
-                            if ("GET_SIZE".equals(command)) {
-                                String fileName = dis.readUTF();
-                                File file = new File(this.clientInfo.clientFolder, fileName);
-                                long size = (file.exists() && file.isFile()) ? file.length() : -1L;
-                                dos.writeLong(size);
-                                System.out.println("[" + clientInfo.clientID + "] GET_SIZE for " + fileName + " returned " + size);
-                            } else if ("GET_FRAGMENT".equals(command)) {
-                                String fileName = dis.readUTF();
-                                long offset = dis.readLong();
-                                long fragmentSize = dis.readLong();
-                                File file = new File(this.clientInfo.clientFolder, fileName);
-                                if (file.exists()) {
-                                    try (RandomAccessFile raf = new RandomAccessFile(file, "r");
-                                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                                         GZIPOutputStream gzip = new GZIPOutputStream(baos)) {
-                                        
-                                        raf.seek(offset);
-                                        byte[] buffer = new byte[(int) fragmentSize];
-                                        int bytesRead = raf.read(buffer);
-                                        if (bytesRead < 0) {
-                                            dos.writeInt(-1);
-                                        } else {
-                                            gzip.write(buffer, 0, bytesRead);
-                                            gzip.finish();
-                                            byte[] compressed = baos.toByteArray();
-                                            dos.writeInt(compressed.length);
-                                            dos.write(compressed);
-                                            dos.flush();
-                                            System.out.println("[" + clientInfo.clientID + "] Sent fragment (" + offset + " to " + (offset+bytesRead) + ") for " + fileName);
-                                        }
-                                    }
-                                } else {
-                                    dos.writeInt(-1);
-                                }
-                            } else {
-                                dos.writeInt(-1);
-                            }
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        }
-                    }).start();
+                    try {
+                        Socket clientSocket = serverSocket.accept();
+                        new Thread(() -> handleClientRequest(clientSocket)).start();
+                    } catch (IOException e) {
+                        System.err.println("Error accepting connection: " + e.getMessage());
+                    }
                 }
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }).start();
+    }
+    
+    // Helper method to handle individual client requests
+    private void handleClientRequest(Socket clientSocket) {
+        try (DataInputStream dis = new DataInputStream(clientSocket.getInputStream());
+             DataOutputStream dos = new DataOutputStream(clientSocket.getOutputStream())) {
+            
+            String command = dis.readUTF();
+            if ("GET_SIZE".equals(command)) {
+                String fileName = dis.readUTF();
+                File file = new File(this.clientInfo.clientFolder, fileName);
+                long size = (file.exists() && file.isFile()) ? file.length() : -1L;
+                dos.writeLong(size);
+                System.out.println("[" + clientInfo.clientID + "] GET_SIZE for " + fileName + " returned " + size);
+            } else if ("GET_FRAGMENT".equals(command)) {
+                String fileName = dis.readUTF();
+                long offset = dis.readLong();
+                long fragmentSize = dis.readLong();
+                File file = new File(this.clientInfo.clientFolder, fileName);
+                if (file.exists()) {
+                    try (RandomAccessFile raf = new RandomAccessFile(file, "r");
+                         ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                         GZIPOutputStream gzip = new GZIPOutputStream(baos)) {
+                        
+                        raf.seek(offset);
+                        byte[] buffer = new byte[(int) fragmentSize];
+                        int bytesRead = raf.read(buffer);
+                        if (bytesRead < 0) {
+                            dos.writeInt(-1);
+                        } else {
+                            gzip.write(buffer, 0, bytesRead);
+                            gzip.finish();
+                            byte[] compressed = baos.toByteArray();
+                            dos.writeInt(compressed.length);
+                            dos.write(compressed);
+                            dos.flush();
+                            System.out.println("[" + clientInfo.clientID + "] Sent fragment (" + offset + " to " + (offset+bytesRead) + ") for " + fileName);
+                        }
+                    }
+                } else {
+                    dos.writeInt(-1);
+                }
+            } else {
+                dos.writeInt(-1);
+            }
+        } catch (IOException e) {
+            System.err.println("Error handling client request: " + e.getMessage());
+        } finally {
+            try {
+                clientSocket.close();
+            } catch (IOException e) {
+                System.err.println("Error closing client socket: " + e.getMessage());
+            }
+        }
     }
 
     @Override

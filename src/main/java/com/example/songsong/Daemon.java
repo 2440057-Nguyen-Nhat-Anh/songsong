@@ -1,6 +1,7 @@
 package com.example.songsong;
 
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
@@ -79,7 +80,13 @@ public class Daemon {
             if (fileToDownload != null) {
                 System.out.println("Attempting immediate download for file: " + fileToDownload);
                 IDownload downloadService = new DownloadImpl();
-                downloadService.downloadFile(fileToDownload);
+                try {
+                    downloadService.downloadFile(fileToDownload);
+                    // Only update file list after successful download
+                    updateFileList(client, clientId, DIR_HOST, daemonPort, folder, dirPort);
+                } catch (Exception e) {
+                    System.err.println("Error during immediate download: " + e.getMessage());
+                }
             }
 
             // Interactive prompt for choosing download method:
@@ -108,18 +115,33 @@ public class Daemon {
                 }
                 String fileName = parts[1].trim();
                 IDownload downloadService = new DownloadImpl();
-                switch(option) {
-                    case 1:
-                        downloadService.downloadFile(fileName);
-                        break;
-                    case 2:
-                        downloadService.downloadSequential(fileName);
-                        break;
-                    case 3:
-                        downloadService.downloadSequentialAll(fileName);
-                        break;
-                    default:
-                        System.out.println("Invalid option selected. Please choose 1, 2, or 3.");
+                
+                boolean downloadSuccessful = false;
+                try {
+                    switch(option) {
+                        case 1:
+                            downloadService.downloadFile(fileName);
+                            downloadSuccessful = true;
+                            break;
+                        case 2:
+                            downloadService.downloadSequential(fileName);
+                            downloadSuccessful = true;
+                            break;
+                        case 3:
+                            downloadService.downloadSequentialAll(fileName);
+                            downloadSuccessful = true;
+                            break;
+                        default:
+                            System.out.println("Invalid option selected. Please choose 1, 2, or 3.");
+                    }
+                } catch (Exception e) {
+                    System.err.println("Download failed: " + e.getMessage());
+                    e.printStackTrace();
+                }
+                
+                // Only update file list if download was successful
+                if (downloadSuccessful) {
+                    updateFileList(client, clientId, DIR_HOST, daemonPort, folder, dirPort);
                 }
             }
             scanner.close();
@@ -127,6 +149,40 @@ public class Daemon {
             System.err.println("Failed to start Daemon: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+    
+    // Extract the file list update logic to a separate method
+    private static void updateFileList(ClientImpl client, String clientId, String dirHost, 
+                                      int daemonPort, String folder, int dirPort) {
+        try {
+            // Give the file system a moment to finalize writing
+            Thread.sleep(100);
+            
+            // Scan for updated files
+            List<String> updatedFiles = scanFiles(folder);
+            
+            // Update client information
+            client.setClientInfo(clientId, dirHost, daemonPort, folder, updatedFiles);
+            
+            // Re-register to update the Directory with the new file list
+            client.registerDirectory(dirHost, dirPort);
+            
+            System.out.println("Local file list updated after download. Files: " + updatedFiles);
+        } catch (Exception e) {
+            System.err.println("Failed to update file list: " + e.getMessage());
+        }
+    }
+
+    // Help see all files after download
+    public static List<String> scanFiles(String folder) {
+        File dir = new File(folder);
+        if (!dir.exists() || !dir.isDirectory()) {
+            return new ArrayList<>();
+        }
+        return Arrays.stream(dir.listFiles())
+                    .filter(File::isFile)
+                    .map(File::getName)
+                    .collect(Collectors.toList());
     }
 
     public static int findAvailablePort(int basePort) {
