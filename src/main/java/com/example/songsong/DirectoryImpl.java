@@ -10,9 +10,13 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class DirectoryImpl extends UnicastRemoteObject implements DirectoryService {
+    // Maps file names to lists of clients that have the file
     private Map<String, List<IClient>> fileToClients = new ConcurrentHashMap<>();
+    // Tracks the last heartbeat timestamp for each client
     private Map<String, Long> lastHeartbeat = new ConcurrentHashMap<>();
+    // Tracks the number of active downloads per client for load balancing
     private Map<String, Integer> clientLoad = new ConcurrentHashMap<>();
+    // Timeout (in milliseconds) after which a client is considered disconnected
     private static final long TIMEOUT = 60000; // 1 minute
 
     public DirectoryImpl() throws RemoteException {
@@ -32,11 +36,13 @@ public class DirectoryImpl extends UnicastRemoteObject implements DirectoryServi
     @Override
     public List<IClient> getAvailableClients(String fileName) throws RemoteException {
         List<IClient> clients = fileToClients.getOrDefault(fileName, Collections.emptyList());
+        // Remove clients that have timed out or are overloaded
         clients.removeIf(client -> {
             try {
                 Long last = lastHeartbeat.get(client.getClientID());
-                return last == null || (System.currentTimeMillis() - last) > TIMEOUT
-                       || clientLoad.getOrDefault(client.getClientID(), 0) > 5;
+                boolean timeout = (last == null) || ((System.currentTimeMillis() - last) > TIMEOUT);
+                boolean overload = clientLoad.getOrDefault(client.getClientID(), 0) > 5;
+                return timeout || overload;
             } catch (RemoteException e) {
                 e.printStackTrace();
                 return true;
@@ -63,9 +69,10 @@ public class DirectoryImpl extends UnicastRemoteObject implements DirectoryServi
     @Override
     public long getFileSize(String fileName) throws RemoteException {
         List<IClient> clients = fileToClients.getOrDefault(fileName, Collections.emptyList());
-        if (clients.isEmpty()) throw new RemoteException("No such file found: " + fileName);
-
-        IClient client = clients.get(0);
+        if (clients.isEmpty()) {
+            throw new RemoteException("No such file found: " + fileName);
+        }
+        IClient client = clients.get(0); // use the first available client
         try (Socket socket = new Socket(client.getHost(), client.getPort());
              DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
              DataInputStream dis = new DataInputStream(socket.getInputStream())) {
@@ -73,8 +80,11 @@ public class DirectoryImpl extends UnicastRemoteObject implements DirectoryServi
             dos.writeUTF("GET_SIZE");
             dos.writeUTF(fileName);
             dos.flush();
+
             long size = dis.readLong();
-            if (size < 0) throw new RemoteException("Client reports file does not exist: " + fileName);
+            if (size < 0) {
+                throw new RemoteException("Client reports file does not exist: " + fileName);
+            }
             return size;
         } catch (IOException e) {
             throw new RemoteException("Failed to get file size from client " + client.getClientID(), e);
@@ -88,13 +98,16 @@ public class DirectoryImpl extends UnicastRemoteObject implements DirectoryServi
                 long currentTime = System.currentTimeMillis();
                 for (Map.Entry<String, Long> entry : lastHeartbeat.entrySet()) {
                     String clientId = entry.getKey();
-                    long elapsed = currentTime - entry.getValue();
+                    long lastTime = entry.getValue();
+                    long elapsed = currentTime - lastTime;
                     if (elapsed > TIMEOUT) {
-                        System.out.println("Client " + clientId + " disconnected (no heartbeat in " + elapsed + " ms).");
+                        System.out.println("Client " + clientId + " disconnected (last heartbeat " + elapsed + " ms ago).");
+                    } else {
+                        System.out.println("Heartbeat received from client " + clientId + " (" + elapsed + " ms ago).");
                     }
                 }
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(5000); // Check every 5 seconds
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;

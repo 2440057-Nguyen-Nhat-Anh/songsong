@@ -29,6 +29,8 @@ public class DownloadImpl implements IDownload {
             for (IClient client : clients) {
                 if (!client.getClientID().equals(localClientId)) {
                     remoteClients.add(client);
+                } else {
+                    System.out.println("Excluding local client " + localClientId + " from download.");
                 }
             }
 
@@ -49,6 +51,8 @@ public class DownloadImpl implements IDownload {
                 long fragmentSize = Math.min(FRAGMENT_SIZE, fileSize - offset);
                 IClient assignedClient = remoteClients.get(i % remoteClients.size());
                 directory.reportDownloadStart(assignedClient.getClientID());
+                System.out.println("Downloading fragment " + fragmentIndex + " (offset: " + offset + ", size: " + fragmentSize 
+                                   + ") from client " + assignedClient.getClientID());
 
                 Future<byte[]> future = executor.submit(() -> {
                     try {
@@ -60,9 +64,10 @@ public class DownloadImpl implements IDownload {
                 futures.add(future);
             }
 
-            try (FileOutputStream fos = new FileOutputStream("downloaded_" + fileName)) {
-                for (Future<byte[]> future : futures) {
-                    fos.write(future.get());
+            try (FileOutputStream fos = new FileOutputStream(fileName)) {
+                for (int i = 0; i < futures.size(); i++) {
+                    byte[] fragment = futures.get(i).get();
+                    fos.write(fragment);
                 }
             }
             executor.shutdown();
@@ -188,6 +193,8 @@ public class DownloadImpl implements IDownload {
 
                 try (ByteArrayInputStream bais = new ByteArrayInputStream(compressed);
                      GZIPInputStream gzip = new GZIPInputStream(bais)) {
+                    System.out.println("Downloaded fragment (" + offset + " to " + (offset + fragmentSize) +
+                                       ") from client " + client.getClientID());
                     return gzip.readAllBytes();
                 }
             } catch (IOException e) {

@@ -33,7 +33,7 @@ public class Daemon {
             }
         }
 
-        // Each client gets its own folder. No download request at startup.
+        // Optionally, a filename can be passed as third argument for immediate download.
         String fileToDownload = null;
         if (args.length > 2) {
             fileToDownload = args[2];
@@ -59,7 +59,7 @@ public class Daemon {
         System.out.println(files.size() + " files found in " + folder);
         System.out.println("Scanning directory: " + dir.getAbsolutePath());
 
-        // Set system properties so DownloadImpl can locate the Directory and to mark this client's ID.
+        // Set system properties so DownloadImpl can locate the Directory and mark this client's ID.
         System.setProperty("directory.host", DIR_HOST);
         System.setProperty("directory.port", String.valueOf(dirPort));
         System.setProperty("local.client.id", clientId);
@@ -75,18 +75,51 @@ public class Daemon {
                                " serving files from folder: " + folder +
                                " with Directory on port " + dirPort);
 
-            // Now wait for user commands
+            // If a file is specified at startup, download it immediately.
+            if (fileToDownload != null) {
+                System.out.println("Attempting immediate download for file: " + fileToDownload);
+                IDownload downloadService = new DownloadImpl();
+                downloadService.downloadFile(fileToDownload);
+            }
+
+            // Interactive prompt for choosing download method:
             Scanner scanner = new Scanner(System.in);
             while (true) {
-                System.out.println("Enter a filename to download or type 'exit' to quit:");
-                String input = scanner.nextLine().trim();
-                if ("exit".equalsIgnoreCase(input)) {
+                System.out.println("\nEnter download option and filename (format: <option> <filename> or 'exit' to quit):");
+                System.out.println("  1: Parallel download");
+                System.out.println("  2: Sequential download");
+                System.out.println("  3: Sequential-all download");
+                String line = scanner.nextLine().trim();
+                if ("exit".equalsIgnoreCase(line)) {
                     System.out.println("Exiting client.");
                     break;
                 }
-                if (!input.isEmpty()) {
-                    IDownload downloadService = new DownloadImpl();
-                    downloadService.downloadFile(input);
+                String[] parts = line.split("\\s+", 2);
+                if (parts.length < 2) {
+                    System.out.println("Please enter both an option and a filename.");
+                    continue;
+                }
+                int option;
+                try {
+                    option = Integer.parseInt(parts[0]);
+                } catch (NumberFormatException e) {
+                    System.out.println("Invalid option.");
+                    continue;
+                }
+                String fileName = parts[1].trim();
+                IDownload downloadService = new DownloadImpl();
+                switch(option) {
+                    case 1:
+                        downloadService.downloadFile(fileName);
+                        break;
+                    case 2:
+                        downloadService.downloadSequential(fileName);
+                        break;
+                    case 3:
+                        downloadService.downloadSequentialAll(fileName);
+                        break;
+                    default:
+                        System.out.println("Invalid option selected. Please choose 1, 2, or 3.");
                 }
             }
             scanner.close();

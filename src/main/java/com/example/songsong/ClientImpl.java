@@ -48,7 +48,7 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
     public void startFileServer(int port) throws Exception {
         new Thread(() -> {
             try (ServerSocket serverSocket = new ServerSocket(port)) {
-                System.out.println("Client " + this.clientInfo.clientID + " serving on port " + port);
+                System.out.println("Client " + this.clientInfo.clientID + " is running on port " + port);
                 while (true) {
                     Socket clientSocket = serverSocket.accept();
                     new Thread(() -> {
@@ -61,11 +61,11 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
                                 File file = new File(this.clientInfo.clientFolder, fileName);
                                 long size = (file.exists() && file.isFile()) ? file.length() : -1L;
                                 dos.writeLong(size);
+                                System.out.println("[" + clientInfo.clientID + "] GET_SIZE for " + fileName + " returned " + size);
                             } else if ("GET_FRAGMENT".equals(command)) {
                                 String fileName = dis.readUTF();
                                 long offset = dis.readLong();
                                 long fragmentSize = dis.readLong();
-
                                 File file = new File(this.clientInfo.clientFolder, fileName);
                                 if (file.exists()) {
                                     try (RandomAccessFile raf = new RandomAccessFile(file, "r");
@@ -84,6 +84,7 @@ public class ClientImpl extends UnicastRemoteObject implements IClient {
                                             dos.writeInt(compressed.length);
                                             dos.write(compressed);
                                             dos.flush();
+                                            System.out.println("[" + clientInfo.clientID + "] Sent fragment (" + offset + " to " + (offset+bytesRead) + ") for " + fileName);
                                         }
                                     }
                                 } else {
